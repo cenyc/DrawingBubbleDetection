@@ -382,3 +382,27 @@ DrawingBubbleService
 /appsettings 4.json
 /DrawingBubbleService_M2
 /DrawingBubbleService_M1.zip
+
+# Cross-platform editor and OS artifacts
+.DS_Store
+**/.DS_Store
+
+# Local secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# BubbleIQ frontend build/runtime artifacts
+/web/.next/
+/web/dist/
+/web/.wrangler/
+/web/node_modules/
+/deploy/release.env
+/deploy/current-image-tag
+/deploy/previous-image-tag
+
+# Frontend image assets are part of the application.
+!/web/public/*.png

@@ -649,6 +649,11 @@ class BubbleDetector:
         self.image: Optional[np.ndarray] = None
         self._norm_tokens: List[NormalizedToken] = []
         self._seed_traces: Dict[str, Any] = {}
+        # Circle helpers are also reused directly by auto_annotate.py,
+        # before detect_from_array() has had a chance to derive
+        # image-specific values. Start with the configured baseline;
+        # detect_from_array() will still raise it for upscaled inputs.
+        self._eff_dedup_dist = self.cfg.dedup_dist
 
         # Real-ESRGAN enhancer — lazy. We construct the wrapper now
         # so missing-file errors surface at startup, but the ONNX

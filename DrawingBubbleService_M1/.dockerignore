@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+__pycache__
+.pytest_cache
+.mypy_cache
+.env
+wheels
+debug
+output
+tmp
+_batch_out
+_pipeline_v2_debug
+*.pyc
+*.pyo
+*.zip
+.DS_Store

@@ -1346,7 +1346,7 @@ def _compute_leader_endpoints(
         # has a visible stroke between rim and bbox edge.
         rim_offset = max(int(d_min) + MIN_LEADER, r)
         rim = (int(cx + ux * rim_offset), int(cy + uy * rim_offset))
-        return (rim, tip)
+        return (rim, (int(round(tip[0])), int(round(tip[1]))))
 
     # Standard case: balloon center is outside the bbox.
     tx = max(x1, min(cx, x2))
@@ -1561,7 +1561,9 @@ def _render(
         # balloon ring overdraws any overshoot into the circle.
         pts = b.leader_points or [b.leader_start, b.leader_end]
         for i in range(len(pts) - 1):
-            cv2.line(out, pts[i], pts[i + 1],
+            start = tuple(int(round(value)) for value in pts[i])
+            end = tuple(int(round(value)) for value in pts[i + 1])
+            cv2.line(out, start, end,
                      leader_color, leader_thickness, cv2.LINE_AA)
         # Balloon circle
         cv2.circle(out, (b.cx, b.cy), b.radius,
