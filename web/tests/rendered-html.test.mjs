@@ -14,6 +14,18 @@ test("builds the standalone BubbleIQ application", async () => {
   assert.match(page, /气泡图预览/);
   assert.match(page, /检验特性表/);
   assert.match(page, /导出检验表/);
+  assert.match(page, /折叠工程导入面板/);
+  assert.match(page, /折叠检验特性表/);
+  assert.match(page, /left-collapsed/);
+  assert.match(page, /right-collapsed/);
+  assert.match(page, /isTablePanelCollapsed, setIsTablePanelCollapsed\] = useState\(true\)/);
+  assert.match(page, /bubbleiq:workspace-panels:v1/);
+  assert.match(page, /window\.localStorage\.getItem\(PANEL_STATE_STORAGE_KEY\)/);
+  assert.match(page, /window\.localStorage\.setItem\(PANEL_STATE_STORAGE_KEY/);
+  assert.match(page, /tableWidth: tablePanelWidth/);
+  assert.match(page, /role="separator"/);
+  assert.match(page, /调整工作区与检验特性表宽度/);
+  assert.doesNotMatch(page, /清空筛选/);
   assert.doesNotMatch(page, /codex-preview|Your site is taking shape/);
   await access(new URL("../.next/BUILD_ID", import.meta.url));
   await access(new URL("../.next/standalone/server.js", import.meta.url));

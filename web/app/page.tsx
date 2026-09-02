@@ -21,11 +21,10 @@ import {
   Sparkles,
   Trash2,
   UploadCloud,
-  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type FeatureType = "直径" | "线性尺寸" | "半径" | "角度" | "形位公差" | "螺纹" | "表面粗糙度";
 
@@ -105,6 +104,12 @@ const SAMPLE_FEATURES: Feature[] = [
 const SAMPLE_IMAGE_SRC = "/demo-engineering-drawing.png";
 const SAMPLE_FILE_NAME = "ScreenShot_2026-07-23_161820_677.png";
 const SAMPLE_IMAGE_SIZE = { width: 1658, height: 990 };
+const PANEL_STATE_STORAGE_KEY = "bubbleiq:workspace-panels:v1";
+const DEFAULT_TABLE_PANEL_WIDTH = 520;
+const MIN_TABLE_PANEL_WIDTH = 360;
+const MIN_DRAWING_PANEL_WIDTH = 430;
+const PANEL_RESIZER_WIDTH = 10;
+const PANEL_GAP_WIDTH = 10;
 
 function createSampleDrawing(): string {
   const canvas = document.createElement("canvas");
@@ -227,6 +232,12 @@ function downloadBlob(content: BlobPart, type: string, filename: string) {
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const uploadPanelRef = useRef<HTMLElement>(null);
+  const tablePanelRef = useRef<HTMLElement>(null);
+  const pendingTableWidthRef = useRef<number | null>(null);
+  const isTableResizingRef = useRef(false);
+  const stopTableResizeListenersRef = useRef<(() => void) | null>(null);
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState(SAMPLE_FILE_NAME);
   const [imageSize, setImageSize] = useState(SAMPLE_IMAGE_SIZE);
@@ -247,11 +258,67 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [analysisEngine, setAnalysisEngine] = useState("DrawingBubbleDetection 示例结果");
   const [analysisWarning, setAnalysisWarning] = useState("");
+  const [isUploadPanelCollapsed, setIsUploadPanelCollapsed] = useState(false);
+  const [isTablePanelCollapsed, setIsTablePanelCollapsed] = useState(true);
+  const [tablePanelWidth, setTablePanelWidth] = useState<number | null>(null);
+  const [isTableResizing, setIsTableResizing] = useState(false);
+  const [isPanelStateLoaded, setIsPanelStateLoaded] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setImageSrc(SAMPLE_IMAGE_SRC), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => () => stopTableResizeListenersRef.current?.(), []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const savedState = window.localStorage.getItem(PANEL_STATE_STORAGE_KEY);
+        if (savedState) {
+          const parsedState: unknown = JSON.parse(savedState);
+          if (typeof parsedState === "object" && parsedState !== null) {
+            const panelState = parsedState as { uploadCollapsed?: unknown; tableCollapsed?: unknown; tableWidth?: unknown };
+            if (typeof panelState.uploadCollapsed === "boolean") {
+              setIsUploadPanelCollapsed(panelState.uploadCollapsed);
+            }
+            if (typeof panelState.tableCollapsed === "boolean") {
+              setIsTablePanelCollapsed(panelState.tableCollapsed);
+            }
+            if (typeof panelState.tableWidth === "number" && Number.isFinite(panelState.tableWidth)) {
+              const workspaceWidth = workspaceRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+              const uploadWidth = uploadPanelRef.current?.getBoundingClientRect().width ?? 220;
+              const maxWidth = Math.max(
+                MIN_TABLE_PANEL_WIDTH,
+                workspaceWidth - uploadWidth - PANEL_GAP_WIDTH - MIN_DRAWING_PANEL_WIDTH - PANEL_RESIZER_WIDTH,
+              );
+              setTablePanelWidth(Math.min(Math.max(panelState.tableWidth, MIN_TABLE_PANEL_WIDTH), maxWidth));
+            }
+          }
+        }
+      } catch {
+        // Keep the safe defaults when storage is unavailable or contains invalid data.
+      } finally {
+        setIsPanelStateLoaded(true);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isPanelStateLoaded) return;
+
+    try {
+      window.localStorage.setItem(PANEL_STATE_STORAGE_KEY, JSON.stringify({
+        uploadCollapsed: isUploadPanelCollapsed,
+        tableCollapsed: isTablePanelCollapsed,
+        tableWidth: tablePanelWidth,
+      }));
+    } catch {
+      // The controls still work for this visit when persistent storage is unavailable.
+    }
+  }, [isPanelStateLoaded, isTablePanelCollapsed, isUploadPanelCollapsed, tablePanelWidth]);
 
   const filteredFeatures = useMemo(() => features.filter((feature) => {
     const matchesQuery = `${feature.id} ${feature.type} ${feature.nominal} ${feature.instrument}`.toLowerCase().includes(query.toLowerCase());
@@ -264,6 +331,79 @@ export default function Home() {
   const averageConfidence = scoredFeatures.length
     ? Math.round(scoredFeatures.reduce((sum, item) => sum + item.confidence, 0) / scoredFeatures.length)
     : 0;
+
+  function resizeTablePanel(clientX: number): number | null {
+    const workspace = workspaceRef.current;
+    if (!workspace || isTablePanelCollapsed) return null;
+
+    const workspaceRect = workspace.getBoundingClientRect();
+    const uploadWidth = uploadPanelRef.current?.getBoundingClientRect().width ?? 0;
+    const maxWidth = Math.max(
+      MIN_TABLE_PANEL_WIDTH,
+      workspaceRect.width - uploadWidth - PANEL_GAP_WIDTH - MIN_DRAWING_PANEL_WIDTH - PANEL_RESIZER_WIDTH,
+    );
+    const nextWidth = Math.min(Math.max(workspaceRect.right - clientX, MIN_TABLE_PANEL_WIDTH), maxWidth);
+    workspace.style.setProperty("--right-panel-width", `${nextWidth}px`);
+    pendingTableWidthRef.current = nextWidth;
+    return nextWidth;
+  }
+
+  function handleTableResizeStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isTablePanelCollapsed) return;
+    event.preventDefault();
+    isTableResizingRef.current = true;
+    pendingTableWidthRef.current = tablePanelRef.current?.getBoundingClientRect().width ?? tablePanelWidth;
+    setIsTableResizing(true);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.buttons === 0) {
+        finishResize();
+        return;
+      }
+      resizeTablePanel(moveEvent.clientX);
+    };
+    const stopListening = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+      if (stopTableResizeListenersRef.current === stopListening) {
+        stopTableResizeListenersRef.current = null;
+      }
+    };
+    const finishResize = () => {
+      stopListening();
+      commitTableResize();
+    };
+
+    stopTableResizeListenersRef.current?.();
+    stopTableResizeListenersRef.current = stopListening;
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function commitTableResize() {
+    if (!isTableResizingRef.current) return;
+    isTableResizingRef.current = false;
+    if (pendingTableWidthRef.current !== null) {
+      setTablePanelWidth(Math.round(pendingTableWidthRef.current));
+    }
+    pendingTableWidthRef.current = null;
+    setIsTableResizing(false);
+  }
+
+  function handleTableResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (isTablePanelCollapsed || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    event.preventDefault();
+    const currentWidth = tablePanelRef.current?.getBoundingClientRect().width ?? MIN_TABLE_PANEL_WIDTH;
+    const direction = event.key === "ArrowLeft" ? 24 : -24;
+    const workspaceRight = workspaceRef.current?.getBoundingClientRect().right ?? window.innerWidth;
+    const nextWidth = resizeTablePanel(workspaceRight - currentWidth - direction);
+    if (nextWidth !== null) {
+      setTablePanelWidth(Math.round(nextWidth));
+      pendingTableWidthRef.current = null;
+    }
+  }
 
   async function loadImageDimensions(src: string): Promise<{ width: number; height: number }> {
     return new Promise((resolve, reject) => {
@@ -490,7 +630,7 @@ export default function Home() {
     setSelectedId(null);
   }
 
-  function pointerCoordinates(event: PointerEvent<SVGSVGElement>) {
+  function pointerCoordinates(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: (event.clientX - rect.left) / rect.width * imageSize.width,
@@ -498,7 +638,7 @@ export default function Home() {
     };
   }
 
-  function handleOverlayPointerMove(event: PointerEvent<SVGSVGElement>) {
+  function handleOverlayPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (dragId === null) return;
     const point = pointerCoordinates(event);
     updateCurrentPageFeatures((current) => current.map((feature) => (
@@ -637,12 +777,46 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="workspace">
-        <aside className="upload-panel">
-          <div className="panel-heading">
-            <span className="step-index">01</span>
-            <div><h2>导入工程图</h2><p>PDF / PNG / JPG</p></div>
-          </div>
+      <div
+        ref={workspaceRef}
+        className={`workspace ${isUploadPanelCollapsed ? "left-collapsed" : ""} ${isTablePanelCollapsed ? "right-collapsed" : ""} ${isTableResizing ? "is-resizing" : ""}`}
+        style={tablePanelWidth === null || isTablePanelCollapsed ? undefined : ({ "--right-panel-width": `${tablePanelWidth}px` } as CSSProperties)}
+      >
+        <aside ref={uploadPanelRef} id="upload-panel" className={`upload-panel side-panel ${isUploadPanelCollapsed ? "is-collapsed" : ""}`}>
+          {isUploadPanelCollapsed ? (
+            <div className="collapsed-panel-rail">
+              <button
+                className="panel-collapse-button"
+                type="button"
+                aria-label="展开工程导入面板"
+                aria-controls="upload-panel"
+                aria-expanded={false}
+                title="展开工程导入"
+                onClick={() => setIsUploadPanelCollapsed(false)}
+              >
+                <ChevronRight size={16} />
+              </button>
+              <span>工程导入</span>
+            </div>
+          ) : (
+            <>
+              <div className="side-panel-heading">
+                <div className="panel-heading">
+                  <span className="step-index">01</span>
+                  <div><h2>导入工程图</h2><p>PDF / PNG / JPG</p></div>
+                </div>
+                <button
+                  className="panel-collapse-button"
+                  type="button"
+                  aria-label="折叠工程导入面板"
+                  aria-controls="upload-panel"
+                  aria-expanded={true}
+                  title="折叠工程导入"
+                  onClick={() => setIsUploadPanelCollapsed(true)}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+              </div>
           <input ref={fileInputRef} type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={handleFileInput} />
           <div
             className={`dropzone ${dragOver ? "is-dragging" : ""}`}
@@ -683,6 +857,8 @@ export default function Home() {
             <div><i className="legend-line" /><span>关联引线</span></div>
             <p>拖动气泡可调整位置；点击气泡可定位表格行。</p>
           </div>
+            </>
+          )}
         </aside>
 
         <section className="drawing-panel">
@@ -788,14 +964,57 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="table-panel">
-          <div className="table-heading">
-            <div className="panel-heading compact">
-              <span className="step-index">02</span>
-              <div><h2>检验特性表</h2><p>{features.length} 项特性</p></div>
+        <div
+          className={`panel-resizer ${isTablePanelCollapsed ? "is-disabled" : ""}`}
+          role="separator"
+          aria-label="调整工作区与检验特性表宽度"
+          aria-orientation="vertical"
+          aria-disabled={isTablePanelCollapsed}
+          aria-valuemin={MIN_TABLE_PANEL_WIDTH}
+          aria-valuenow={Math.round(tablePanelWidth ?? DEFAULT_TABLE_PANEL_WIDTH)}
+          tabIndex={isTablePanelCollapsed ? -1 : 0}
+          onPointerDown={handleTableResizeStart}
+          onKeyDown={handleTableResizeKeyDown}
+        />
+
+        <section ref={tablePanelRef} id="table-panel" className={`table-panel side-panel ${isTablePanelCollapsed ? "is-collapsed" : ""}`}>
+          {isTablePanelCollapsed ? (
+            <div className="collapsed-panel-rail">
+              <button
+                className="panel-collapse-button"
+                type="button"
+                aria-label="展开检验特性表"
+                aria-controls="table-panel"
+                aria-expanded={false}
+                title="展开检验特性表"
+                onClick={() => setIsTablePanelCollapsed(false)}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span>检验特性表</span>
+              <b>{features.length}</b>
             </div>
-            <button className="icon-close" title="清空筛选" onClick={() => { setQuery(""); setTypeFilter("全部类型"); }}><X size={16} /></button>
-          </div>
+          ) : (
+            <>
+              <div className="table-heading">
+                <div className="panel-heading compact">
+                  <span className="step-index">02</span>
+                  <div><h2>检验特性表</h2><p>{features.length} 项特性</p></div>
+                </div>
+                <div className="table-heading-actions">
+                  <button
+                    className="panel-collapse-button"
+                    type="button"
+                    aria-label="折叠检验特性表"
+                    aria-controls="table-panel"
+                    aria-expanded={true}
+                    title="折叠检验特性表"
+                    onClick={() => setIsTablePanelCollapsed(true)}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
           <div className="table-filters">
             <label className="search-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索特性..." /></label>
             <select aria-label="特性类型筛选" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
@@ -853,6 +1072,8 @@ export default function Home() {
             <button className="add-row" onClick={() => setAddMode(true)}><Plus size={15} /> 在图纸中添加特性</button>
             <div><Sparkles size={14} /><span>自动识别结果需由工程师复核</span></div>
           </div>
+            </>
+          )}
         </section>
       </div>
     </main>
