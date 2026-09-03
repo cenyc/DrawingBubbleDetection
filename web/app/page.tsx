@@ -24,7 +24,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { ChangeEvent, CSSProperties, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, DragEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, WheelEvent as ReactWheelEvent } from "react";
 
 type FeatureType = "直径" | "线性尺寸" | "半径" | "角度" | "形位公差" | "螺纹" | "表面粗糙度";
 
@@ -110,6 +110,8 @@ const MIN_TABLE_PANEL_WIDTH = 360;
 const MIN_DRAWING_PANEL_WIDTH = 430;
 const PANEL_RESIZER_WIDTH = 10;
 const PANEL_GAP_WIDTH = 10;
+const MIN_VIEW_ZOOM = 0.6;
+const MAX_VIEW_ZOOM = 2;
 
 function createSampleDrawing(): string {
   const canvas = document.createElement("canvas");
@@ -233,11 +235,28 @@ function downloadBlob(content: BlobPart, type: string, filename: string) {
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const drawingViewportRef = useRef<HTMLDivElement>(null);
+  const drawingStageRef = useRef<HTMLDivElement>(null);
   const uploadPanelRef = useRef<HTMLElement>(null);
   const tablePanelRef = useRef<HTMLElement>(null);
   const pendingTableWidthRef = useRef<number | null>(null);
   const isTableResizingRef = useRef(false);
   const stopTableResizeListenersRef = useRef<(() => void) | null>(null);
+  const zoomRef = useRef(1);
+  const pendingZoomAnchorRef = useRef<{
+    clientX: number;
+    clientY: number;
+    anchorX: number;
+    anchorY: number;
+  } | null>(null);
+  const viewPanRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
+  const suppressViewClickRef = useRef(false);
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState(SAMPLE_FILE_NAME);
   const [imageSize, setImageSize] = useState(SAMPLE_IMAGE_SIZE);
@@ -263,6 +282,7 @@ export default function Home() {
   const [tablePanelWidth, setTablePanelWidth] = useState<number | null>(null);
   const [isTableResizing, setIsTableResizing] = useState(false);
   const [isPanelStateLoaded, setIsPanelStateLoaded] = useState(false);
+  const [isViewPanning, setIsViewPanning] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setImageSrc(SAMPLE_IMAGE_SRC), 0);
@@ -270,6 +290,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => () => stopTableResizeListenersRef.current?.(), []);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingZoomAnchorRef.current;
+    const viewport = drawingViewportRef.current;
+    const stage = drawingStageRef.current;
+    if (!anchor || !viewport || !stage) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    viewport.scrollLeft += stageRect.left + anchor.anchorX * stageRect.width - anchor.clientX;
+    viewport.scrollTop += stageRect.top + anchor.anchorY * stageRect.height - anchor.clientY;
+    pendingZoomAnchorRef.current = null;
+  }, [zoom]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -638,6 +674,86 @@ export default function Home() {
     };
   }
 
+  function handleViewportWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (!event.shiftKey) return;
+
+    event.preventDefault();
+    const viewport = drawingViewportRef.current;
+    const stage = drawingStageRef.current;
+    if (!viewport || !stage) return;
+
+    const wheelDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    if (wheelDelta === 0) return;
+
+    const currentZoom = zoomRef.current;
+    const nextZoom = Math.min(
+      MAX_VIEW_ZOOM,
+      Math.max(MIN_VIEW_ZOOM, currentZoom * Math.exp(-wheelDelta * 0.0015)),
+    );
+    if (Math.abs(nextZoom - currentZoom) < 0.001) return;
+
+    const oldStageRect = stage.getBoundingClientRect();
+    const anchorX = Math.min(1, Math.max(0, (event.clientX - oldStageRect.left) / oldStageRect.width));
+    const anchorY = Math.min(1, Math.max(0, (event.clientY - oldStageRect.top) / oldStageRect.height));
+    pendingZoomAnchorRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      anchorX,
+      anchorY,
+    };
+    zoomRef.current = nextZoom;
+    setZoom(nextZoom);
+  }
+
+  function handleViewportPointerDownCapture(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!event.shiftKey || event.button !== 0) return;
+
+    const viewport = event.currentTarget;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressViewClickRef.current = true;
+    viewPanRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: viewport.scrollLeft,
+      startScrollTop: viewport.scrollTop,
+    };
+    viewport.setPointerCapture(event.pointerId);
+    setIsViewPanning(true);
+  }
+
+  function handleViewportPointerMoveCapture(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = viewPanRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.scrollLeft = pan.startScrollLeft - (event.clientX - pan.startX);
+    event.currentTarget.scrollTop = pan.startScrollTop - (event.clientY - pan.startY);
+  }
+
+  function finishViewportPan(event: ReactPointerEvent<HTMLDivElement>, suppressClick: boolean) {
+    const pan = viewPanRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    viewPanRef.current = null;
+    suppressViewClickRef.current = suppressClick;
+    setIsViewPanning(false);
+  }
+
+  function handleViewportClickCapture(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!event.shiftKey && !suppressViewClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressViewClickRef.current = false;
+  }
+
   function handleOverlayPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (dragId === null) return;
     const point = pointerCoordinates(event);
@@ -867,9 +983,9 @@ export default function Home() {
               <button className={`tool-button ${!addMode ? "active" : ""}`} onClick={() => setAddMode(false)} title="选择"><MousePointer2 size={16} /></button>
               <button className={`tool-button ${addMode ? "active" : ""}`} onClick={() => setAddMode((value) => !value)} title="添加气泡"><CirclePlus size={16} /></button>
               <span className="toolbar-separator" />
-              <button className="tool-button" onClick={() => setZoom((value) => Math.max(0.6, value - 0.1))} title="缩小"><ZoomOut size={16} /></button>
+              <button className="tool-button" onClick={() => setZoom((value) => Math.max(MIN_VIEW_ZOOM, value - 0.1))} title="缩小"><ZoomOut size={16} /></button>
               <span className="zoom-value">{Math.round(zoom * 100)}%</span>
-              <button className="tool-button" onClick={() => setZoom((value) => Math.min(2, value + 0.1))} title="放大"><ZoomIn size={16} /></button>
+              <button className="tool-button" onClick={() => setZoom((value) => Math.min(MAX_VIEW_ZOOM, value + 0.1))} title="放大"><ZoomIn size={16} /></button>
               <button className="tool-button" onClick={() => setZoom(1)} title="适合窗口"><Maximize2 size={16} /></button>
             </div>
             <div className="toolbar-title">
@@ -879,7 +995,17 @@ export default function Home() {
             <button className="button outline" onClick={exportBubbleImage}><Download size={15} /> 下载气泡图</button>
           </div>
 
-          <div className="drawing-viewport">
+          <div
+            ref={drawingViewportRef}
+            className={`drawing-viewport ${isViewPanning ? "is-view-panning" : ""}`}
+            onWheel={handleViewportWheel}
+            onPointerDownCapture={handleViewportPointerDownCapture}
+            onPointerMoveCapture={handleViewportPointerMoveCapture}
+            onPointerUpCapture={(event) => finishViewportPan(event, true)}
+            onPointerCancelCapture={(event) => finishViewportPan(event, false)}
+            onClickCapture={handleViewportClickCapture}
+            title="Shift + 鼠标滚轮缩放；Shift + 鼠标左键拖动平移"
+          >
             {processing && (
               <div className="processing-overlay">
                 <LoaderCircle className="spinner" size={28} />
@@ -895,7 +1021,7 @@ export default function Home() {
                 <button className="button outline" onClick={() => fileInputRef.current?.click()}><UploadCloud size={15} /> 重新选择文件</button>
               </div>
             )}
-            <div className="drawing-stage" style={{ width: `${zoom * 100}%` }}>
+            <div ref={drawingStageRef} className="drawing-stage" style={{ width: `${zoom * 100}%` }}>
               {imageSrc && (
                 // The source can be a PDF canvas data URL or user-selected blob;
                 // a native image preserves the exact coordinate system used by the SVG overlay.

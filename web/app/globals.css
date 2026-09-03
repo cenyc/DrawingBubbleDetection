@@ -168,7 +168,8 @@ button { color: inherit; }
 .panel-toolbar > .button { justify-self: end; }
 
 .drawing-viewport { flex: 1; min-height: 0; overflow: auto; background-color: var(--canvas); background-image: radial-gradient(#c5ccd0 0.65px, transparent 0.65px); background-size: 12px 12px; padding: 26px; position: relative; }
-.drawing-stage { position: relative; min-width: 360px; margin: 0 auto; box-shadow: 0 5px 18px rgba(29,43,52,.18); background: white; transition: width .18s ease; line-height: 0; }
+.drawing-viewport.is-view-panning, .drawing-viewport.is-view-panning * { cursor: grabbing !important; user-select: none; }
+.drawing-stage { position: relative; min-width: 360px; margin: 0 auto; box-shadow: 0 5px 18px rgba(29,43,52,.18); background: white; line-height: 0; }
 .drawing-stage img { width: 100%; height: auto; display: block; user-select: none; }
 .annotation-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .annotation-layer.add-mode { cursor: crosshair; }
