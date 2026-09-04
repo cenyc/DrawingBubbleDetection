@@ -11,6 +11,7 @@ import {
   FileImage,
   FileSpreadsheet,
   Focus,
+  Frame,
   LoaderCircle,
   Maximize2,
   MousePointer2,
@@ -29,6 +30,7 @@ import { ChangeEvent, CSSProperties, DragEvent, KeyboardEvent, MouseEvent as Rea
 type FeatureType = "直径" | "线性尺寸" | "半径" | "角度" | "形位公差" | "螺纹" | "表面粗糙度";
 
 type Feature = {
+  uid: string;
   id: number;
   anchorX: number;
   anchorY: number;
@@ -42,6 +44,27 @@ type Feature = {
   confidence: number | null;
   rawText?: string;
   source?: "pdf-vector" | "paddleocr" | "bubble-api" | "browser" | "manual";
+  regionId?: string;
+};
+
+type RegionStatus = "pending" | "recognizing" | "succeeded" | "failed";
+
+type RecognitionRegion = {
+  id: string;
+  label: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  status: RegionStatus;
+  resultCount: number;
+  error?: string;
+};
+
+type RegionDraft = Omit<RecognitionRegion, "id" | "label" | "status" | "resultCount"> & {
+  startX: number;
+  startY: number;
+  invalid: boolean;
 };
 
 type DocumentPage = {
@@ -50,6 +73,7 @@ type DocumentPage = {
   height: number;
   imageSrc: string;
   features: Feature[];
+  regions: RecognitionRegion[];
 };
 
 type BubbleApiResponse = {
@@ -89,16 +113,16 @@ const TYPE_META: Record<FeatureType, { method: string; instrument: string }> = {
 };
 
 const SAMPLE_FEATURES: Feature[] = [
-  { id: 1, anchorX: 905, anchorY: 90, bubbleX: 967, bubbleY: 90, type: "线性尺寸", nominal: "23", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "23", source: "bubble-api" },
-  { id: 2, anchorX: 820, anchorY: 52, bubbleX: 727, bubbleY: 145, type: "线性尺寸", nominal: "29.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "29.5", source: "bubble-api" },
-  { id: 3, anchorX: 964, anchorY: 154, bubbleX: 1026, bubbleY: 154, type: "线性尺寸", nominal: "14", tolerance: "±0.2", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "14±0.2", source: "bubble-api" },
-  { id: 4, anchorX: 261, anchorY: 307, bubbleX: 210, bubbleY: 307, type: "线性尺寸", nominal: "1.94", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "1.94", source: "bubble-api" },
-  { id: 5, anchorX: 155, anchorY: 493, bubbleX: 111, bubbleY: 452, type: "线性尺寸", nominal: "15.8", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "15.8", source: "bubble-api" },
-  { id: 6, anchorX: 1483, anchorY: 605, bubbleX: 1545, bubbleY: 605, type: "线性尺寸", nominal: "2-06", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2-06", source: "bubble-api" },
-  { id: 7, anchorX: 109, anchorY: 611, bubbleX: 109, bubbleY: 636, type: "线性尺寸", nominal: "21.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "21.5", source: "bubble-api" },
-  { id: 8, anchorX: 1366, anchorY: 767, bubbleX: 1366, bubbleY: 759, type: "线性尺寸", nominal: "2-03.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2-03.5", source: "bubble-api" },
-  { id: 9, anchorX: 299, anchorY: 812, bubbleX: 250, bubbleY: 812, type: "线性尺寸", nominal: "2.06", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2.06", source: "bubble-api" },
-  { id: 10, anchorX: 907, anchorY: 899, bubbleX: 907, bubbleY: 852, type: "线性尺寸", nominal: "50.3", tolerance: "±0.3", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "50.3±0.3", source: "bubble-api" },
+  { uid: "sample-1", id: 1, anchorX: 905, anchorY: 90, bubbleX: 967, bubbleY: 90, type: "线性尺寸", nominal: "23", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "23", source: "bubble-api" },
+  { uid: "sample-2", id: 2, anchorX: 820, anchorY: 52, bubbleX: 727, bubbleY: 145, type: "线性尺寸", nominal: "29.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "29.5", source: "bubble-api" },
+  { uid: "sample-3", id: 3, anchorX: 964, anchorY: 154, bubbleX: 1026, bubbleY: 154, type: "线性尺寸", nominal: "14", tolerance: "±0.2", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "14±0.2", source: "bubble-api" },
+  { uid: "sample-4", id: 4, anchorX: 261, anchorY: 307, bubbleX: 210, bubbleY: 307, type: "线性尺寸", nominal: "1.94", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "1.94", source: "bubble-api" },
+  { uid: "sample-5", id: 5, anchorX: 155, anchorY: 493, bubbleX: 111, bubbleY: 452, type: "线性尺寸", nominal: "15.8", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "15.8", source: "bubble-api" },
+  { uid: "sample-6", id: 6, anchorX: 1483, anchorY: 605, bubbleX: 1545, bubbleY: 605, type: "线性尺寸", nominal: "2-06", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2-06", source: "bubble-api" },
+  { uid: "sample-7", id: 7, anchorX: 109, anchorY: 611, bubbleX: 109, bubbleY: 636, type: "线性尺寸", nominal: "21.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "21.5", source: "bubble-api" },
+  { uid: "sample-8", id: 8, anchorX: 1366, anchorY: 767, bubbleX: 1366, bubbleY: 759, type: "线性尺寸", nominal: "2-03.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2-03.5", source: "bubble-api" },
+  { uid: "sample-9", id: 9, anchorX: 299, anchorY: 812, bubbleX: 250, bubbleY: 812, type: "线性尺寸", nominal: "2.06", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2.06", source: "bubble-api" },
+  { uid: "sample-10", id: 10, anchorX: 907, anchorY: 899, bubbleX: 907, bubbleY: 852, type: "线性尺寸", nominal: "50.3", tolerance: "±0.3", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "50.3±0.3", source: "bubble-api" },
 ];
 
 const SAMPLE_IMAGE_SRC = "/demo-engineering-drawing.png";
@@ -112,6 +136,12 @@ const PANEL_RESIZER_WIDTH = 10;
 const PANEL_GAP_WIDTH = 10;
 const MIN_VIEW_ZOOM = 0.6;
 const MAX_VIEW_ZOOM = 2;
+const REGION_STATUS_LABELS: Record<RegionStatus, string> = {
+  pending: "待识别",
+  recognizing: "识别中",
+  succeeded: "已完成",
+  failed: "识别失败",
+};
 
 function createSampleDrawing(): string {
   const canvas = document.createElement("canvas");
@@ -257,13 +287,18 @@ export default function Home() {
     startScrollTop: number;
   } | null>(null);
   const suppressViewClickRef = useRef(false);
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageSrc, setImageSrc] = useState(SAMPLE_IMAGE_SRC);
   const [fileName, setFileName] = useState(SAMPLE_FILE_NAME);
   const [imageSize, setImageSize] = useState(SAMPLE_IMAGE_SIZE);
   const [features, setFeatures] = useState<Feature[]>(SAMPLE_FEATURES);
-  const [selectedId, setSelectedId] = useState<number | null>(1);
-  const [dragId, setDragId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>("sample-1");
+  const [dragId, setDragId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState(false);
+  const [regionMode, setRegionMode] = useState(false);
+  const [regions, setRegions] = useState<RecognitionRegion[]>([]);
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
+  const [regionDraft, setRegionDraft] = useState<RegionDraft | null>(null);
+  const [regionNotice, setRegionNotice] = useState("");
   const [zoom, setZoom] = useState(1);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(100);
@@ -283,11 +318,6 @@ export default function Home() {
   const [isTableResizing, setIsTableResizing] = useState(false);
   const [isPanelStateLoaded, setIsPanelStateLoaded] = useState(false);
   const [isViewPanning, setIsViewPanning] = useState(false);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setImageSrc(SAMPLE_IMAGE_SRC), 0);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   useEffect(() => () => stopTableResizeListenersRef.current?.(), []);
 
@@ -367,6 +397,11 @@ export default function Home() {
   const averageConfidence = scoredFeatures.length
     ? Math.round(scoredFeatures.reduce((sum, item) => sum + item.confidence, 0) / scoredFeatures.length)
     : 0;
+  const regionSelectionDisabled = !imageSrc || processing;
+  const pageRecognitionDisabled = !imageSrc || processing;
+  const regionRecognitionDisabled = processing || !regions.some(
+    (region) => region.status === "pending" || region.status === "failed",
+  );
 
   function resizeTablePanel(clientX: number): number | null {
     const workspace = workspaceRef.current;
@@ -454,11 +489,15 @@ export default function Home() {
     setImageSrc(page.imageSrc);
     setImageSize({ width: page.width, height: page.height });
     setFeatures(page.features);
-    setSelectedId(page.features[0]?.id ?? null);
+    setRegions(page.regions);
+    setSelectedId(page.features[0]?.uid ?? null);
+    setSelectedRegionId(null);
+    setRegionDraft(null);
+    setRegionNotice("");
     setPageNumber(page.pageNumber);
   }
 
-  function featuresFromBubbleApi(result: BubbleApiResponse): Feature[] {
+  function featuresFromBubbleApi(result: BubbleApiResponse, region?: RecognitionRegion): Feature[] {
     return result.balloons.map((item) => {
       const text = cleanToken(item.dimension_text);
       const type = classifyToken(text);
@@ -467,12 +506,15 @@ export default function Home() {
       const [x0, y0, x1, y1] = item.dim_bbox;
       const leaderEnd = item.leader_points.at(-1);
       const meta = TYPE_META[type];
+      const offsetX = region?.x ?? 0;
+      const offsetY = region?.y ?? 0;
       return {
+        uid: crypto.randomUUID(),
         id: item.number,
-        anchorX: leaderEnd?.[0] ?? (x0 + x1) / 2,
-        anchorY: leaderEnd?.[1] ?? (y0 + y1) / 2,
-        bubbleX: item.balloon.cx,
-        bubbleY: item.balloon.cy,
+        anchorX: offsetX + (leaderEnd?.[0] ?? (x0 + x1) / 2),
+        anchorY: offsetY + (leaderEnd?.[1] ?? (y0 + y1) / 2),
+        bubbleX: offsetX + item.balloon.cx,
+        bubbleY: offsetY + item.balloon.cy,
         type,
         nominal,
         tolerance,
@@ -481,6 +523,7 @@ export default function Home() {
         confidence: null,
         rawText: text,
         source: "bubble-api",
+        regionId: region?.id,
       };
     });
   }
@@ -549,7 +592,12 @@ export default function Home() {
     setZoom(1);
     setImageSrc("");
     setFeatures([]);
+    setRegions([]);
     setSelectedId(null);
+    setSelectedRegionId(null);
+    setRegionDraft(null);
+    setRegionMode(false);
+    setAddMode(false);
     setDocumentPages([]);
     setAnalysisWarning("");
     try {
@@ -561,24 +609,21 @@ export default function Home() {
           reader.readAsDataURL(file);
         });
         const size = await loadImageDimensions(src);
-        setStage("识别尺寸并生成气泡");
-        setProgress(35);
-        const bubbleResult = await autoAnnotateWithBubbleService(file);
-        const detected = featuresFromBubbleApi(bubbleResult);
+        const imagePage: DocumentPage = {
+          pageNumber: 1,
+          width: size.width,
+          height: size.height,
+          imageSrc: src,
+          features: [],
+          regions: [],
+        };
         setPageCount(1);
-        setPageNumber(1);
-        setImageSrc(src);
-        setImageSize(size);
-        setFeatures(detected);
-        setSelectedId(detected[0]?.id ?? null);
-        setAnalysisEngine("DrawingBubbleDetection Auto-Annotate");
-        setAnalysisWarning(
-          detected.length
-            ? "自动标注服务未提供逐项置信度；所有识别结果仍需由工程师复核。"
-            : "DrawingBubbleDetection 已完成分析，但没有识别到可自动标注的尺寸。",
-        );
-        setStage("气泡标注完成");
-        setProgress(100);
+        setDocumentPages([imagePage]);
+        applyDocumentPage(imagePage);
+        setAnalysisEngine("DrawingBubbleDetection 图纸识别");
+        setAnalysisWarning("图纸已渲染，可直接识别当前页，或框选一个或多个区域进行精细识别。");
+        setStage("等待选择识别范围");
+        setProgress(25);
         setProcessing(false);
         return;
       }
@@ -590,35 +635,32 @@ export default function Home() {
       const pagesToProcess = Math.min(pdfDoc.numPages, 10);
       const detectedPages: DocumentPage[] = [];
       setPageCount(pagesToProcess);
-      setAnalysisEngine("DrawingBubbleDetection PDF Auto-Annotate");
+      setAnalysisEngine("DrawingBubbleDetection PDF 图纸识别");
 
       for (let targetPage = 1; targetPage <= pagesToProcess; targetPage += 1) {
         setStage(`渲染 PDF 第 ${targetPage} / ${pagesToProcess} 页`);
-        setProgress(8 + Math.round(((targetPage - 1) / pagesToProcess) * 84));
+        setProgress(8 + Math.round(((targetPage - 1) / pagesToProcess) * 17));
         const rendered = await renderPdfPageAsImage(pdfDoc, targetPage, file.name);
-        setStage(`识别 PDF 第 ${targetPage} / ${pagesToProcess} 页`);
-        setProgress(12 + Math.round(((targetPage - 0.5) / pagesToProcess) * 84));
-        const bubbleResult = await autoAnnotateWithBubbleService(rendered.file);
         detectedPages.push({
           pageNumber: targetPage,
           width: rendered.width,
           height: rendered.height,
           imageSrc: rendered.imageSrc,
-          features: featuresFromBubbleApi(bubbleResult),
+          features: [],
+          regions: [],
         });
       }
 
       setDocumentPages(detectedPages);
       applyDocumentPage(detectedPages[0]);
-      const detectedCount = detectedPages.reduce((sum, page) => sum + page.features.length, 0);
       const truncatedMessage = pdfDoc.numPages > pagesToProcess
-        ? ` 为控制处理时间，本次只检测前 ${pagesToProcess} 页。`
+        ? ` 为控制处理时间，本次只渲染前 ${pagesToProcess} 页。`
         : "";
       setAnalysisWarning(
-        `${pagesToProcess} 页共识别 ${detectedCount} 项；自动标注服务未提供逐项置信度，结果仍需由工程师复核。${truncatedMessage}`,
+        `PDF 已渲染，可逐页直接识别，或框选区域进行精细识别。${truncatedMessage}`,
       );
-      setStage("PDF 气泡标注完成");
-      setProgress(100);
+      setStage("等待选择识别范围");
+      setProgress(25);
       setProcessing(false);
     } catch (error) {
       console.error("Drawing processing failed", error);
@@ -653,25 +695,338 @@ export default function Home() {
     )));
   }
 
-  function updateFeature(id: number, key: keyof Feature, value: string | number) {
-    updateCurrentPageFeatures((current) => current.map((feature) => (
-      feature.id === id ? { ...feature, [key]: value } : feature
+  function updateCurrentPageRegions(updater: (current: RecognitionRegion[]) => RecognitionRegion[]) {
+    setRegions(updater);
+    setDocumentPages((pages) => pages.map((page) => (
+      page.pageNumber === pageNumber ? { ...page, regions: updater(page.regions) } : page
     )));
   }
 
-  function removeFeature(id: number) {
+  function updateFeature(uid: string, key: keyof Feature, value: string | number) {
+    updateCurrentPageFeatures((current) => current.map((feature) => (
+      feature.uid === uid ? { ...feature, [key]: value } : feature
+    )));
+  }
+
+  function removeFeature(uid: string) {
     updateCurrentPageFeatures((current) => current
-      .filter((feature) => feature.id !== id)
+      .filter((feature) => feature.uid !== uid)
       .map((feature, index) => ({ ...feature, id: index + 1 })));
     setSelectedId(null);
+  }
+
+  function pointIsInsideRegion(x: number, y: number, region: Pick<RecognitionRegion, "x" | "y" | "width" | "height">) {
+    return x >= region.x
+      && x <= region.x + region.width
+      && y >= region.y
+      && y <= region.y + region.height;
+  }
+
+  function featureIsInsideRegion(feature: Feature, region: RecognitionRegion) {
+    return feature.regionId === region.id
+      || pointIsInsideRegion(feature.bubbleX, feature.bubbleY, region);
+  }
+
+  function requestClearAllBubbles() {
+    if (processing || (!features.length && !regions.length)) return;
+    const confirmed = window.confirm(`确定清空当前页的 ${features.length} 个气泡和 ${regions.length} 个识别区域吗？此操作不可撤销。`);
+    if (!confirmed) return;
+
+    updateCurrentPageFeatures(() => []);
+    updateCurrentPageRegions(() => []);
+    setSelectedId(null);
+    setSelectedRegionId(null);
+    setRegionDraft(null);
+    setRegionNotice("");
+    setRegionMode(false);
+    setProgress(25);
+    setStage("已清空当前页标注");
+    setAnalysisWarning(`当前页的 ${features.length} 个气泡和 ${regions.length} 个识别区域已清空。`);
+  }
+
+  function regionsOverlap(a: Pick<RecognitionRegion, "x" | "y" | "width" | "height">, b: Pick<RecognitionRegion, "x" | "y" | "width" | "height">) {
+    return a.x < b.x + b.width
+      && a.x + a.width > b.x
+      && a.y < b.y + b.height
+      && a.y + a.height > b.y;
+  }
+
+  function nextRegionLabel(current: RecognitionRegion[]) {
+    const used = new Set(current.map((region) => region.label));
+    let label = 1;
+    while (used.has(label)) label += 1;
+    return label;
+  }
+
+  function requestDeleteRegion(regionId: string) {
+    if (processing) return;
+    const region = regions.find((item) => item.id === regionId);
+    if (!region) return;
+    if (region.resultCount > 0) {
+      const confirmed = window.confirm(`删除区域 ${region.label} 将同时删除它生成的 ${region.resultCount} 条检验特性，是否继续？`);
+      if (!confirmed) return;
+    }
+    updateCurrentPageFeatures((current) => current
+      .filter((feature) => feature.regionId !== regionId)
+      .map((feature, index) => ({ ...feature, id: index + 1 })));
+    updateCurrentPageRegions((current) => current.filter((item) => item.id !== regionId));
+    const remainingRegions = regions.filter((item) => item.id !== regionId);
+    setSelectedRegionId((current) => current === regionId ? null : current);
+    setSelectedId(null);
+    setRegionNotice(`区域 ${region.label} 已删除。`);
+    setProgress(
+      !remainingRegions.length
+        ? 25
+        : remainingRegions.every((item) => item.status === "succeeded") ? 100 : 35,
+    );
+    setStage(remainingRegions.length ? "区域已删除" : "等待选择识别范围");
+    setAnalysisWarning(
+      region.resultCount > 0
+        ? `区域 ${region.label} 及其 ${region.resultCount} 项识别结果已删除。`
+        : `区域 ${region.label} 已删除。`,
+    );
+  }
+
+  async function createRecognitionFile(region?: RecognitionRegion): Promise<File> {
+    const image = new Image();
+    image.src = imageSrc;
+    await image.decode();
+    const bounds = region ?? {
+      x: 0,
+      y: 0,
+      width: imageSize.width,
+      height: imageSize.height,
+    };
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bounds.width));
+    canvas.height = Math.max(1, Math.round(bounds.height));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法创建识别画布。");
+    context.drawImage(
+      image,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => value ? resolve(value) : reject(new Error("识别图片生成失败。")), "image/png");
+    });
+    const scopeName = region ? `区域${region.label}` : `第${pageNumber}页_整页`;
+    return new File([blob], `${fileName.replace(/\.[^.]+$/, "")}_${scopeName}.png`, { type: "image/png" });
+  }
+
+  function cropRegion(region: RecognitionRegion): Promise<File> {
+    return createRecognitionFile(region);
+  }
+
+  async function recognizeCurrentPage() {
+    if (pageRecognitionDisabled) return;
+
+    setProcessing(true);
+    setErrorMessage("");
+    setRegionNotice("");
+    setAnalysisWarning("");
+    setSelectedId(null);
+    setSelectedRegionId(null);
+    setRegionDraft(null);
+    setRegionMode(false);
+    setStage(`正在识别第 ${pageNumber} 页`);
+    setProgress(35);
+
+    try {
+      const pageFile = await createRecognitionFile();
+      setProgress(65);
+      const result = await autoAnnotateWithBubbleService(pageFile);
+      const detected = featuresFromBubbleApi(result);
+      updateCurrentPageFeatures((current) => [
+        ...current.filter((feature) => feature.source === "manual"),
+        ...detected,
+      ]
+        .sort((a, b) => a.anchorY - b.anchorY || a.anchorX - b.anchorX)
+        .map((feature, index) => ({ ...feature, id: index + 1 })));
+      updateCurrentPageRegions((current) => current.map((region) => ({
+        ...region,
+        status: "pending",
+        resultCount: 0,
+        error: undefined,
+      })));
+      setProgress(100);
+      setStage("整页识别完成");
+      setAnalysisWarning(
+        `当前页识别出 ${detected.length} 项特性；可继续框选区域进行精细识别，区域结果会替换对应范围内的自动结果。`,
+      );
+    } catch (error) {
+      console.error("Full-page recognition failed", error);
+      setStage("整页识别失败");
+      setErrorMessage(error instanceof Error ? error.message : "整页识别失败，请检查识别服务后重试。");
+      setProgress(25);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function recognizeRegions(regionIds?: string[]) {
+    const requestedIds = regionIds ? new Set(regionIds) : null;
+    const targets = regions.filter((region) => (
+      (requestedIds ? requestedIds.has(region.id) : region.status === "pending" || region.status === "failed")
+      && region.status !== "recognizing"
+    ));
+    if (!targets.length || processing) return;
+
+    setProcessing(true);
+    setErrorMessage("");
+    setRegionNotice("");
+    setAnalysisWarning("");
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let index = 0; index < targets.length; index += 1) {
+      const region = targets[index];
+      setStage(`正在识别区域 ${region.label}（${index + 1}/${targets.length}）`);
+      setProgress(35 + Math.round((index / targets.length) * 55));
+      updateCurrentPageRegions((current) => current.map((item) => (
+        item.id === region.id ? { ...item, status: "recognizing", error: undefined } : item
+      )));
+      setSelectedId(null);
+      try {
+        const croppedFile = await cropRegion(region);
+        const result = await autoAnnotateWithBubbleService(croppedFile);
+        const detected = featuresFromBubbleApi(result, region);
+        updateCurrentPageFeatures((current) => [
+          ...current.filter((feature) => (
+            feature.source === "manual" || !featureIsInsideRegion(feature, region)
+          )),
+          ...detected,
+        ]
+          .sort((a, b) => a.anchorY - b.anchorY || a.anchorX - b.anchorX)
+          .map((feature, featureIndex) => ({ ...feature, id: featureIndex + 1 })));
+        updateCurrentPageRegions((current) => current.map((item) => (
+          item.id === region.id
+            ? { ...item, status: "succeeded", resultCount: detected.length, error: undefined }
+            : item
+        )));
+        succeeded += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "区域识别失败";
+        updateCurrentPageRegions((current) => current.map((item) => (
+          item.id === region.id ? { ...item, status: "failed", resultCount: 0, error: message } : item
+        )));
+        failed += 1;
+      }
+    }
+
+    setProgress(100);
+    setStage(failed ? "部分区域识别完成" : "区域识别完成");
+    setAnalysisWarning(
+      failed
+        ? `${succeeded} 个区域识别成功，${failed} 个区域失败，可在区域列表中重试。`
+        : `${succeeded} 个区域识别完成；所有结果已合并到检验特性表，仍需由工程师复核。`,
+    );
+    setProcessing(false);
   }
 
   function pointerCoordinates(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
-      x: (event.clientX - rect.left) / rect.width * imageSize.width,
-      y: (event.clientY - rect.top) / rect.height * imageSize.height,
+      x: Math.min(imageSize.width, Math.max(0, (event.clientX - rect.left) / rect.width * imageSize.width)),
+      y: Math.min(imageSize.height, Math.max(0, (event.clientY - rect.top) / rect.height * imageSize.height)),
     };
+  }
+
+  function handleRegionPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!regionMode || processing || event.button !== 0 || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    const point = pointerCoordinates(event);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedRegionId(null);
+    setSelectedId(null);
+    setRegionNotice("");
+    setRegionDraft({
+      startX: point.x,
+      startY: point.y,
+      x: point.x,
+      y: point.y,
+      width: 0,
+      height: 0,
+      invalid: false,
+    });
+  }
+
+  function handleRegionPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!regionDraft || !regionMode) return;
+    const point = pointerCoordinates(event);
+    const next = {
+      x: Math.min(regionDraft.startX, point.x),
+      y: Math.min(regionDraft.startY, point.y),
+      width: Math.abs(point.x - regionDraft.startX),
+      height: Math.abs(point.y - regionDraft.startY),
+    };
+    const overlapsExistingRegion = regions.some((region) => regionsOverlap(next, region));
+    if (overlapsExistingRegion && !regionDraft.invalid) {
+      setRegionNotice("所选区域与已有区域重叠，请调整框选范围。");
+    } else if (!overlapsExistingRegion && regionDraft.invalid) {
+      setRegionNotice("");
+    }
+    setRegionDraft({
+      ...regionDraft,
+      ...next,
+      invalid: overlapsExistingRegion,
+    });
+  }
+
+  function finishRegionSelection(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!regionDraft || !regionMode) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const minWidth = Math.max(24, imageSize.width * 0.01);
+    const minHeight = Math.max(24, imageSize.height * 0.01);
+    if (regionDraft.invalid) {
+      setRegionNotice("识别区域不能与已有区域重叠，请重新框选。");
+      setRegionDraft(null);
+      return;
+    }
+    if (regionDraft.width < minWidth || regionDraft.height < minHeight) {
+      setRegionNotice("选择范围过小，请拖动选择更大的识别区域。");
+      setRegionDraft(null);
+      return;
+    }
+    const region: RecognitionRegion = {
+      id: crypto.randomUUID(),
+      label: nextRegionLabel(regions),
+      x: regionDraft.x,
+      y: regionDraft.y,
+      width: regionDraft.width,
+      height: regionDraft.height,
+      status: "pending",
+      resultCount: 0,
+    };
+    updateCurrentPageRegions((current) => [...current, region]);
+    setSelectedRegionId(region.id);
+    setRegionDraft(null);
+    setRegionNotice(`区域 ${region.label} 已添加，可继续框选。`);
+    setProgress((current) => Math.max(current, 35));
+    setStage("已选择识别区域");
+  }
+
+  function cancelRegionSelection(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!regionDraft) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setRegionDraft(null);
+  }
+
+  function handleOverlayKeyDown(event: KeyboardEvent<SVGSVGElement>) {
+    if ((event.key === "Delete" || event.key === "Backspace") && selectedRegionId) {
+      event.preventDefault();
+      requestDeleteRegion(selectedRegionId);
+    }
   }
 
   function handleViewportWheel(event: ReactWheelEvent<HTMLDivElement>) {
@@ -755,21 +1110,27 @@ export default function Home() {
   }
 
   function handleOverlayPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (regionMode) {
+      handleRegionPointerMove(event);
+      return;
+    }
     if (dragId === null) return;
     const point = pointerCoordinates(event);
     updateCurrentPageFeatures((current) => current.map((feature) => (
-      feature.id === dragId ? { ...feature, bubbleX: point.x, bubbleY: point.y } : feature
+      feature.uid === dragId ? { ...feature, bubbleX: point.x, bubbleY: point.y } : feature
     )));
   }
 
   function handleOverlayClick(event: React.MouseEvent<SVGSVGElement>) {
-    if (!addMode || dragId !== null) return;
+    if (regionMode || !addMode || dragId !== null) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width * imageSize.width;
     const y = (event.clientY - rect.top) / rect.height * imageSize.height;
     const id = features.length + 1;
+    const uid = crypto.randomUUID();
     const meta = TYPE_META["线性尺寸"];
     updateCurrentPageFeatures((current) => [...current, {
+      uid,
       id,
       anchorX: x,
       anchorY: y,
@@ -783,7 +1144,7 @@ export default function Home() {
       confidence: 100,
       source: "manual",
     }]);
-    setSelectedId(id);
+    setSelectedId(uid);
     setAddMode(false);
   }
 
@@ -792,7 +1153,12 @@ export default function Home() {
     setImageSize(SAMPLE_IMAGE_SIZE);
     setFileName(SAMPLE_FILE_NAME);
     setFeatures(SAMPLE_FEATURES);
-    setSelectedId(1);
+    setRegions([]);
+    setSelectedId("sample-1");
+    setSelectedRegionId(null);
+    setRegionDraft(null);
+    setRegionMode(false);
+    setAddMode(false);
     setPageCount(1);
     setPageNumber(1);
     setDocumentPages([]);
@@ -950,14 +1316,97 @@ export default function Home() {
             <small>最大 20 MB · 支持扫描件</small>
           </div>
 
+          <div className="region-card">
+            <div className="region-card-head">
+              <b>识别方式</b>
+              <span className="recognition-page-chip">第 {pageNumber} 页</span>
+            </div>
+            <div className="recognition-scope-actions" aria-label="选择识别方式">
+              <button
+                type="button"
+                className="recognition-scope-button full-page"
+                disabled={pageRecognitionDisabled}
+                onClick={() => void recognizeCurrentPage()}
+                aria-label={`整页识别第 ${pageNumber} 页`}
+              >
+                <span><Sparkles size={16} /></span>
+                <strong>整页识别</strong>
+              </button>
+              <button
+                type="button"
+                className={`recognition-scope-button selected-area ${regionMode ? "active" : ""}`}
+                disabled={regionSelectionDisabled}
+                aria-label={regionMode ? "结束区域框选" : "开始区域识别框选"}
+                onClick={() => {
+                  if (regionSelectionDisabled) return;
+                  setRegionMode((value) => !value);
+                  setAddMode(false);
+                  setSelectedId(null);
+                  setRegionNotice("");
+                }}
+              >
+                <span><Frame size={16} /></span>
+                <strong>区域识别</strong>
+              </button>
+            </div>
+            {regionMode && regions.length === 0 ? (
+              <p className="region-selection-hint">请在图纸上拖动框选区域</p>
+            ) : null}
+            {regions.length > 0 ? (
+              <div className="region-list">
+                {regions.map((region) => (
+                  <div
+                    key={region.id}
+                    className={`region-list-item ${selectedRegionId === region.id ? "selected" : ""}`}
+                    onClick={() => { setSelectedRegionId(region.id); setSelectedId(null); }}
+                  >
+                    <i>{region.label}</i>
+                    <div>
+                      <b>区域 {region.label}</b>
+                      <span className={`region-status ${region.status}`}>
+                        {REGION_STATUS_LABELS[region.status]}
+                        {region.status === "succeeded" ? ` · ${region.resultCount} 项` : ""}
+                      </span>
+                    </div>
+                    {region.status === "failed" ? (
+                      <button
+                        type="button"
+                        className="region-retry"
+                        title={region.error || "重试识别"}
+                        onClick={(event) => { event.stopPropagation(); void recognizeRegions([region.id]); }}
+                      >重试</button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="region-delete"
+                      title={`删除区域 ${region.label}`}
+                      aria-label={`删除区域 ${region.label}`}
+                      disabled={processing}
+                      onClick={(event) => { event.stopPropagation(); requestDeleteRegion(region.id); }}
+                    ><Trash2 size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {regionNotice ? <p className="region-notice" role="status">{regionNotice}</p> : null}
+            {regions.length > 0 ? (
+              <button
+                type="button"
+                className="button primary region-recognize-button"
+                aria-disabled={regionRecognitionDisabled}
+                onClick={() => void recognizeRegions()}
+              ><Sparkles size={13} /> 识别 {regions.length} 个区域</button>
+            ) : null}
+          </div>
+
           <div className="process-card">
             <div className="process-head"><span>识别流程</span><b>{progress}%</b></div>
             <div className="progress-track"><i style={{ width: `${progress}%` }} /></div>
             <div className="process-steps">
               <div className={progress >= 18 ? "done" : ""}><span>{progress >= 18 ? <Check size={12} /> : "1"}</span>图纸渲染</div>
-              <div className={progress >= 48 ? "done" : ""}><span>{progress >= 48 ? <Check size={12} /> : "2"}</span>尺寸识别</div>
-              <div className={progress >= 85 ? "done" : ""}><span>{progress >= 85 ? <Check size={12} /> : "3"}</span>特性分类</div>
-              <div className={progress === 100 ? "done" : ""}><span>{progress === 100 ? <Check size={12} /> : "4"}</span>气泡生成</div>
+              <div className={progress >= 35 ? "done" : ""}><span>{progress >= 35 ? <Check size={12} /> : "2"}</span>选择识别范围</div>
+              <div className={progress >= 90 ? "done" : ""}><span>{progress >= 90 ? <Check size={12} /> : "3"}</span>特征识别</div>
+              <div className={progress === 100 ? "done" : ""}><span>{progress === 100 ? <Check size={12} /> : "4"}</span>结果合并</div>
             </div>
           </div>
 
@@ -980,8 +1429,9 @@ export default function Home() {
         <section className="drawing-panel">
           <div className="panel-toolbar">
             <div className="toolbar-group">
-              <button className={`tool-button ${!addMode ? "active" : ""}`} onClick={() => setAddMode(false)} title="选择"><MousePointer2 size={16} /></button>
-              <button className={`tool-button ${addMode ? "active" : ""}`} onClick={() => setAddMode((value) => !value)} title="添加气泡"><CirclePlus size={16} /></button>
+              <button className={`tool-button ${!addMode && !regionMode ? "active" : ""}`} onClick={() => { setAddMode(false); setRegionMode(false); }} title="选择"><MousePointer2 size={16} /></button>
+              <button className={`tool-button ${regionMode ? "active" : ""}`} onClick={() => { setRegionMode((value) => !value); setAddMode(false); }} title="选择识别区域"><Frame size={16} /></button>
+              <button className={`tool-button ${addMode ? "active" : ""}`} onClick={() => { setAddMode((value) => !value); setRegionMode(false); }} title="添加气泡"><CirclePlus size={16} /></button>
               <span className="toolbar-separator" />
               <button className="tool-button" onClick={() => setZoom((value) => Math.max(MIN_VIEW_ZOOM, value - 0.1))} title="缩小"><ZoomOut size={16} /></button>
               <span className="zoom-value">{Math.round(zoom * 100)}%</span>
@@ -991,9 +1441,33 @@ export default function Home() {
             <div className="toolbar-title">
               <span className="live-indicator" /> 气泡图预览
               {addMode && <em>点击图纸添加检验点</em>}
+              {regionMode && <em>拖动框选多个区域</em>}
             </div>
-            <button className="button outline" onClick={exportBubbleImage}><Download size={15} /> 下载气泡图</button>
+            <div className="drawing-toolbar-actions">
+              <button
+                type="button"
+                className="button outline danger drawing-action-button"
+                disabled={processing || (!features.length && !regions.length)}
+                onClick={requestClearAllBubbles}
+                aria-label="清空气泡和识别区域"
+                title="清空气泡和识别区域"
+              ><Trash2 size={15} /> 清空</button>
+              <button
+                type="button"
+                className="button outline drawing-action-button"
+                onClick={exportBubbleImage}
+                aria-label="下载气泡图"
+                title="下载气泡图"
+              ><Download size={15} /> 下载</button>
+            </div>
           </div>
+
+          {(regionDraft?.invalid || regionNotice.includes("重叠")) ? (
+            <div className="drawing-overlap-alert" role="alert" aria-live="assertive">
+              <AlertCircle size={17} />
+              <span>{regionDraft?.invalid ? "当前框选与已有区域重叠，请调整范围。" : regionNotice}</span>
+            </div>
+          ) : null}
 
           <div
             ref={drawingViewportRef}
@@ -1034,25 +1508,65 @@ export default function Home() {
                 />
               )}
               <svg
-                className={`annotation-layer ${addMode ? "add-mode" : ""}`}
+                className={`annotation-layer ${addMode ? "add-mode" : ""} ${regionMode ? "region-mode" : ""}`}
                 viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
+                onPointerDown={handleRegionPointerDown}
                 onPointerMove={handleOverlayPointerMove}
-                onPointerUp={() => setDragId(null)}
-                onPointerLeave={() => setDragId(null)}
+                onPointerUp={(event) => {
+                  if (regionDraft) finishRegionSelection(event);
+                  setDragId(null);
+                }}
+                onPointerCancel={cancelRegionSelection}
+                onPointerLeave={() => { if (!regionDraft) setDragId(null); }}
                 onClick={handleOverlayClick}
+                onKeyDown={handleOverlayKeyDown}
+                tabIndex={0}
                 aria-label="气泡标注图层"
               >
+                {regions.map((region) => (
+                  <g
+                    key={region.id}
+                    className={`recognition-region ${region.status} ${selectedRegionId === region.id ? "selected" : ""}`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      if (regionMode) {
+                        setRegionNotice("框选起点位于已有区域内，识别区域不能重叠。");
+                        event.currentTarget.ownerSVGElement?.focus();
+                        return;
+                      }
+                      setSelectedRegionId(region.id);
+                      setSelectedId(null);
+                      event.currentTarget.ownerSVGElement?.focus();
+                    }}
+                  >
+                    <rect x={region.x} y={region.y} width={region.width} height={region.height} />
+                    <g className="region-label" transform={`translate(${region.x + 6} ${region.y + 6})`}>
+                      <rect width="145" height="32" rx="4" />
+                      <text x="10" y="17">区域 {region.label} · {REGION_STATUS_LABELS[region.status]}</text>
+                    </g>
+                  </g>
+                ))}
+                {regionDraft ? (
+                  <rect
+                    className={`region-draft ${regionDraft.invalid ? "invalid" : ""}`}
+                    x={regionDraft.x}
+                    y={regionDraft.y}
+                    width={regionDraft.width}
+                    height={regionDraft.height}
+                  />
+                ) : null}
                 {features.map((feature) => {
-                  const selected = feature.id === selectedId;
+                  const selected = feature.uid === selectedId;
                   const radius = Math.max(17, imageSize.width * 0.016);
                   return (
                     <g
-                      key={feature.id}
+                      key={feature.uid}
                       className={`annotation ${selected ? "selected" : ""}`}
                       onPointerDown={(event) => {
                         event.stopPropagation();
-                        setDragId(feature.id);
-                        setSelectedId(feature.id);
+                        if (regionMode) return;
+                        setDragId(feature.uid);
+                        setSelectedId(feature.uid);
                         event.currentTarget.setPointerCapture(event.pointerId);
                       }}
                     >
@@ -1153,7 +1667,7 @@ export default function Home() {
               <thead><tr><th>#</th><th>特性</th><th>标称值</th><th>公差 / 要求</th><th>检具</th><th>操作</th></tr></thead>
               <tbody>
                 {filteredFeatures.map((feature) => (
-                  <tr key={feature.id} className={feature.id === selectedId ? "selected" : ""} onClick={() => setSelectedId(feature.id)}>
+                  <tr key={feature.uid} className={feature.uid === selectedId ? "selected" : ""} onClick={() => { setSelectedId(feature.uid); setSelectedRegionId(feature.regionId ?? null); }}>
                     <td><span className="row-number">{feature.id}</span></td>
                     <td>
                       <select
@@ -1162,18 +1676,18 @@ export default function Home() {
                         onClick={(event) => event.stopPropagation()}
                         onChange={(event) => {
                           const type = event.target.value as FeatureType;
-                          updateFeature(feature.id, "type", type);
-                          updateFeature(feature.id, "method", TYPE_META[type].method);
-                          updateFeature(feature.id, "instrument", TYPE_META[type].instrument);
+                          updateFeature(feature.uid, "type", type);
+                          updateFeature(feature.uid, "method", TYPE_META[type].method);
+                          updateFeature(feature.uid, "instrument", TYPE_META[type].instrument);
                         }}
                       >
                         {Object.keys(TYPE_META).map((type) => <option key={type}>{type}</option>)}
                       </select>
                       <small>{feature.method}</small>
                     </td>
-                    <td><input aria-label={`特性 ${feature.id} 标称值`} value={feature.nominal} onClick={(event) => event.stopPropagation()} onChange={(event) => updateFeature(feature.id, "nominal", event.target.value)} /></td>
-                    <td><input aria-label={`特性 ${feature.id} 公差`} value={feature.tolerance} onClick={(event) => event.stopPropagation()} onChange={(event) => updateFeature(feature.id, "tolerance", event.target.value)} /></td>
-                    <td><input aria-label={`特性 ${feature.id} 检具`} value={feature.instrument} onClick={(event) => event.stopPropagation()} onChange={(event) => updateFeature(feature.id, "instrument", event.target.value)} /><span className={`confidence ${feature.confidence !== null && feature.confidence < 90 ? "warn" : ""}`}>{feature.confidence === null ? "—" : `${feature.confidence}%`}</span></td>
+                    <td><input aria-label={`特性 ${feature.id} 标称值`} value={feature.nominal} onClick={(event) => event.stopPropagation()} onChange={(event) => updateFeature(feature.uid, "nominal", event.target.value)} /></td>
+                    <td><input aria-label={`特性 ${feature.id} 公差`} value={feature.tolerance} onClick={(event) => event.stopPropagation()} onChange={(event) => updateFeature(feature.uid, "tolerance", event.target.value)} /></td>
+                    <td><input aria-label={`特性 ${feature.id} 检具`} value={feature.instrument} onClick={(event) => event.stopPropagation()} onChange={(event) => updateFeature(feature.uid, "instrument", event.target.value)} /><span className={`confidence ${feature.confidence !== null && feature.confidence < 90 ? "warn" : ""}`}>{feature.confidence === null ? "—" : `${feature.confidence}%`}</span></td>
                     <td>
                       <button
                         className="remove-row"
@@ -1181,7 +1695,7 @@ export default function Home() {
                         aria-label={`删除特性 ${feature.id}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          removeFeature(feature.id);
+                          removeFeature(feature.uid);
                         }}
                       >
                         <Trash2 size={13} />
@@ -1195,7 +1709,7 @@ export default function Home() {
             {filteredFeatures.length === 0 && <div className="empty-table"><AlertCircle size={22} /><span>没有匹配的检验特性</span></div>}
           </div>
           <div className="table-footer">
-            <button className="add-row" onClick={() => setAddMode(true)}><Plus size={15} /> 在图纸中添加特性</button>
+            <button className="add-row" onClick={() => { setAddMode(true); setRegionMode(false); }}><Plus size={15} /> 在图纸中添加特性</button>
             <div><Sparkles size={14} /><span>自动识别结果需由工程师复核</span></div>
           </div>
             </>
