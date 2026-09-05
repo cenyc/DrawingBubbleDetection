@@ -52,10 +52,12 @@ def associate(
             balloon_id_conf = ocr.confidence if ocr else 0.0
             distance_conf = max(0.0, min(1.0, 1.0 - best_dist / 220.0))
             confidence = float(0.25 * balloon.confidence + 0.20 * balloon_id_conf + 0.25 * leader_conf + 0.20 * best.confidence + 0.10 * distance_conf)
-            review = confidence < 0.65 or best.suppressed
+            review = confidence < 0.65 or best.suppressed or best.review_required
             reason = "low_confidence" if confidence < 0.65 else ""
             if best.suppressed:
                 reason = "dimension_inside_suppressed_region"
+            if best.review_required:
+                reason = ";".join(filter(None, (reason, "ambiguous_diameter_symbol")))
             assignments.append(Assignment(
                 balloon_candidate_id=balloon.candidate_id,
                 balloon_id=ocr.text if ocr and ocr.text else balloon.candidate_id,
@@ -69,6 +71,7 @@ def associate(
                     "endpoint": endpoint,
                     "endpoint_to_text_distance": round(best_dist, 2),
                     "association_score": round(best_score, 2),
+                    "raw_ocr_text": best.raw_text or best.text,
                 },
             ))
         else:

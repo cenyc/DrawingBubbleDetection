@@ -6,6 +6,11 @@ import logging
 from dataclasses import dataclass
 from typing import List
 
+try:
+    from .diameter_ocr import normalize_diameter_symbols
+except ImportError:
+    from diameter_ocr import normalize_diameter_symbols
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -18,6 +23,7 @@ class OCRToken:
     y1: float
     x2: float
     y2: float
+    original_text: str | None = None
 
 
 @dataclass
@@ -55,9 +61,11 @@ def normalize_engineering_text(text: str) -> str:
     """Robust engineering text normalization for diverse OCR outputs."""
     if not text:
         return text
+    if isinstance(text, bytes):
+        text = text.decode('utf-8', errors='replace')
+    text = normalize_diameter_symbols(text)
     
-    # Resolve U+FFFD (replacement character) BEFORE the Latin-1 encode/decode
-    # step below, which would otherwise silently drop it (U+FFFD > U+00FF).
+    # Resolve U+FFFD (replacement character) using the surrounding notation.
     # Replace in context: digit × digit → × (U+00D7); digit at end/space → ° (U+00B0).
     if '\ufffd' in text:
         text = re.sub(r'(\d)\ufffd(\d)',
@@ -70,7 +78,7 @@ def normalize_engineering_text(text: str) -> str:
         # the Ø (diameter) symbol — RapidOCR cannot encode Ø in some fonts
         # and outputs U+FFFD instead.  Convert to "0" here (not directly to Ø)
         # so the existing ^0\d{2,}→Ø rule downstream handles it cleanly
-        # without being undone by the Ø-corruption stripping rules.
+        # while retaining the existing replacement-character recovery behavior.
         text = re.sub(r'^\ufffd(?=\d)', '0', text)
         # Same pattern after whitespace (multi-token strings: " \ufffd63.1")
         text = re.sub(r'(?<=\s)\ufffd(?=\d)', '0', text)
@@ -87,16 +95,8 @@ def normalize_engineering_text(text: str) -> str:
     text = re.sub(r'^O/(?=\d)', 'Ø', text)
     text = re.sub(r'(?<=\s)O/(?=\d)', 'Ø', text)
 
-    # Fix encoding issues first
-    try:
-        # Handle common encoding problems
-        if isinstance(text, bytes):
-            text = text.decode('utf-8', errors='ignore')
-        else:
-            # Fix common encoding artifacts
-            text = text.encode('latin1', errors='ignore').decode('latin1')
-    except:
-        pass
+    # Preserve Unicode engineering symbols and annotations. A lossy Latin-1
+    # round trip deletes symbols such as ⌀, ≤ and perpendicularity outright.
     
     # Remove common OCR artifacts
     normalized = text.strip()
@@ -161,7 +161,6 @@ def normalize_engineering_text(text: str) -> str:
     # NOT when it is a valid diameter prefix (e.g. "Ø52.28" must stay).
     if 'Ø' in normalized:
         normalized = re.sub(r'Ø(\d+)Ø', r'\1', normalized)          # Ø5Ø -> 5
-        normalized = re.sub(r'^Ø(\d{1,2})$', r'\1', normalized)     # standalone Ø5 -> 5
 
     # Focused confusion matrix — only unambiguous single-character swaps in
     # purely numeric/symbolic contexts.  Removed entries that corrupt
@@ -623,7 +622,7 @@ def normalize_ocr_tokens(tokens: List[OCRToken], image_w: int, image_h: int):
 
         out.append(
             NormalizedToken(
-                raw_text=t.text,
+                raw_text=t.original_text if t.original_text is not None else t.text,
                 text=norm,
                 cx=t.cx,
                 cy=t.cy,

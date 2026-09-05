@@ -72,6 +72,8 @@ class TextCandidate:
     kind: str
     suppressed: bool = False
     suppression_reason: str = ""
+    raw_text: str = ""
+    review_required: bool = False
 
 
 @dataclass

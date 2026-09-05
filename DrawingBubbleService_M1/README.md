@@ -195,6 +195,36 @@ Tests run against 8 reference drawings with ground-truth annotations. Current pe
 
 ## Requirements
 
+### Diameter symbol recovery
+
+Both OCR paths preserve observed `⌀`, `Ø`, `ø`, `Φ`, and `φ` as `Ø`.
+Suspicious readings such as `2-06`, `2-03.5`, or a split `06` trigger
+local quadrilateral rectification and enlargement. Recovery accepts a matching
+quantity/value when a second OCR read contains a diameter symbol and scores
+at least 0.8, or when the original character image verifies a ring split
+diagonally by a stroke. The pixel check requires character/component alignment
+and rejects ordinary zeros and vertically stacked eight-shaped holes. Dimension
+underlines and small edge noise are excluded from that alignment. Numeric zeros
+are never replaced from the text heuristic alone; normal decimals such as
+`0.6` and `2-0.5` are excluded.
+
+Each OCR invocation retries at most 12 suspicious regions with two reads each.
+The second read bypasses text detection to avoid splitting the symbol again.
+Production OCR caches repeated region reads across preprocessing variants.
+The auto-annotation endpoint also verifies rotated OCR tokens before grouping,
+preserves their original text and uses the engine's actual confidence values.
+Unresolved readings use the existing review flag with
+`ambiguous_diameter_symbol`; V2 debug records also retain the raw OCR text.
+This does not guarantee recovery when the model omits or fragments a callout.
+
+Run the focused regression suite from this directory:
+
+```bash
+python -m pytest test_diameter_ocr.py -q
+```
+
+### Runtime dependencies
+
 - Python 3.12
 - OpenCV 4.10
 - RapidOCR (ONNX Runtime 1.17)

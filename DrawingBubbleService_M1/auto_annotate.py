@@ -178,7 +178,8 @@ def _ocr_rotated_pass(
     dimensions (e.g. chamfer callouts written along a 45° edge) that
     upright OCR misses. Returns OCRToken objects in *original* coords.
     """
-    from ocr_rules import OCRToken  # local import avoids cycle
+    from ocr_rules import OCRToken, normalize_engineering_text  # local import avoids cycle
+    from diameter_ocr import diameter_candidate, reread_diameter
     # Reuse the singleton OCR from detector._get_ocr() instead of
     # spawning a fresh RapidOCR instance — model loading is ~8–10 s
     # per construction, and the rotated-pass is called for every
@@ -190,6 +191,7 @@ def _ocr_rotated_pass(
 
     h, w = image.shape[:2]
     out = []
+    retries_left = 12
     for angle in angles:
         M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
         cos_a, sin_a = abs(M[0, 0]), abs(M[0, 1])
@@ -212,7 +214,7 @@ def _ocr_rotated_pass(
                 bbox = item[0]
                 text_info = item[1]
                 text = str(text_info[0] if isinstance(text_info, (list, tuple)) else text_info).strip()
-                conf = float(text_info[1] if isinstance(text_info, (list, tuple)) and len(text_info) > 1 else 0.9)
+                conf = float(text_info[1] if isinstance(text_info, (list, tuple)) and len(text_info) > 1 else item[2] if len(item) > 2 else 0.9)
                 if not text or conf < 0.5:
                     continue
                 # Map each bbox corner back to original coords
@@ -223,8 +225,14 @@ def _ocr_rotated_pass(
                     mapped.append((float(x), float(y)))
                 xs = [p[0] for p in mapped]
                 ys = [p[1] for p in mapped]
+                original_text = text
+                if retries_left and diameter_candidate(text):
+                    retries_left -= 1
+                    text, conf = reread_diameter(image, mapped, text, conf, ocr)
+                text = normalize_engineering_text(text)
                 out.append(OCRToken(
                     text=text,
+                    original_text=original_text,
                     cx=sum(xs) / len(xs),
                     cy=sum(ys) / len(ys),
                     conf=conf,

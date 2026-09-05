@@ -8,6 +8,10 @@ import numpy as np
 
 from .contracts import TextCandidate
 from .ocr_utils import get_ocr
+try:
+    from ..diameter_ocr import normalize_diameter_symbols, diameter_candidate, reread_diameter
+except ImportError:
+    from diameter_ocr import normalize_diameter_symbols, diameter_candidate, reread_diameter
 
 
 _DIM_PATTERNS = (
@@ -20,9 +24,10 @@ _DIM_PATTERNS = (
 
 
 def normalize_dimension_text(text: str) -> str:
-    t = text.strip().upper()
+    t = normalize_diameter_symbols(text.strip()).upper()
     t = t.replace(",", ".")
-    t = t.replace("O", "0") if re.search(r"\d", t) else t
+    # Keep ambiguous O intact until local image verification has had a chance
+    # to distinguish diameter marks from zeros and engineering identifiers.
     t = re.sub(r"\s+", " ", t)
     return t
 
@@ -52,6 +57,7 @@ def detect_dimension_text(image: np.ndarray) -> List[TextCandidate]:
     ocr_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
     candidates: List[TextCandidate] = []
+    retries_left = 12
     try:
         raw = _parse_ocr_result(ocr(ocr_img))
     except Exception:
@@ -61,6 +67,10 @@ def detect_dimension_text(image: np.ndarray) -> List[TextCandidate]:
         if len(item) < 3:
             continue
         box, text, conf = item[0], str(item[1]), float(item[2])
+        original_text = text
+        if retries_left and diameter_candidate(text):
+            retries_left -= 1
+            text, conf = reread_diameter(image, box, text, conf, ocr)
         norm = normalize_dimension_text(text)
         if not looks_like_dimension(norm):
             continue
@@ -74,6 +84,7 @@ def detect_dimension_text(image: np.ndarray) -> List[TextCandidate]:
             center=(float((x1 + x2) / 2.0), float((y1 + y2) / 2.0)),
             confidence=conf,
             kind="dimension",
+            raw_text=original_text,
+            review_required=diameter_candidate(text) is not None,
         ))
     return candidates
-

@@ -115,6 +115,11 @@ def _put_text_unicode(
 import geometric_utils
 
 try:
+    from .diameter_ocr import diameter_candidate, reread_diameter
+except ImportError:
+    from diameter_ocr import diameter_candidate, reread_diameter
+
+try:
     from .ocr_rules import (
         OCRToken,
         NormalizedToken,
@@ -1520,6 +1525,15 @@ class BubbleDetector:
             )
         _step_end("19j. Suppress overlapping duplicate bubble candidates")
 
+        # High OCR confidence does not resolve the 0/diameter ambiguity.
+        # Preserve unresolved text and surface it through the existing review UI.
+        for bubble in bubbles:
+            if diameter_candidate(bubble.dimension or ""):
+                bubble.needs_review = True
+                bubble.review_reason = ";".join(filter(None, (
+                    bubble.review_reason, "ambiguous_diameter_symbol",
+                )))
+
         _step_begin("20. Annotate output image")
         annotated = self._annotate(img, bubbles, circles, callout_groups)
         _step_end("20. Annotate output image")
@@ -1733,6 +1747,8 @@ class BubbleDetector:
         lines and pollute the bubble→dim mapping.
         """
         requested_scales = [effective_scale]
+        diameter_retries_left = 12
+        diameter_retry_cache = {}
         if (not single_scale) and self.cfg.run_multi_scale_ocr and effective_scale > 1:
             requested_scales.append(1)
 
@@ -1889,8 +1905,21 @@ class BubbleDetector:
                             ys = [float(bbox_points[1]) / actual_scale,
                                   float(bbox_points[3]) / actual_scale]
 
+                        original_text = text
+                        if diameter_candidate(text) and len(xs) == 4:
+                            cache_key = (text, round(sum(xs) / len(xs) / 8), round(sum(ys) / len(ys) / 8))
+                            if cache_key not in diameter_retry_cache and diameter_retries_left:
+                                diameter_retries_left -= 1
+                                diameter_retry_cache[cache_key] = reread_diameter(
+                                    img, list(zip(xs, ys)), text, conf, self.ocr,
+                                )
+                            if cache_key in diameter_retry_cache:
+                                text, retry_conf = diameter_retry_cache[cache_key]
+                                conf = min(conf, retry_conf)
+
                         all_tokens.append(OCRToken(
                             text=text,
+                            original_text=original_text,
                             cx=sum(xs) / len(xs),
                             cy=sum(ys) / len(ys),
                             conf=conf,

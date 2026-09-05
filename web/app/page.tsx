@@ -118,9 +118,9 @@ const SAMPLE_FEATURES: Feature[] = [
   { uid: "sample-3", id: 3, anchorX: 964, anchorY: 154, bubbleX: 1026, bubbleY: 154, type: "线性尺寸", nominal: "14", tolerance: "±0.2", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "14±0.2", source: "bubble-api" },
   { uid: "sample-4", id: 4, anchorX: 261, anchorY: 307, bubbleX: 210, bubbleY: 307, type: "线性尺寸", nominal: "1.94", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "1.94", source: "bubble-api" },
   { uid: "sample-5", id: 5, anchorX: 155, anchorY: 493, bubbleX: 111, bubbleY: 452, type: "线性尺寸", nominal: "15.8", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "15.8", source: "bubble-api" },
-  { uid: "sample-6", id: 6, anchorX: 1483, anchorY: 605, bubbleX: 1545, bubbleY: 605, type: "线性尺寸", nominal: "2-06", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2-06", source: "bubble-api" },
+  { uid: "sample-6", id: 6, anchorX: 1483, anchorY: 605, bubbleX: 1545, bubbleY: 605, type: "直径", nominal: "2-Ø6", tolerance: "", method: "两点测量", instrument: "数显卡尺", confidence: null, rawText: "2-Ø6", source: "bubble-api" },
   { uid: "sample-7", id: 7, anchorX: 109, anchorY: 611, bubbleX: 109, bubbleY: 636, type: "线性尺寸", nominal: "21.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "21.5", source: "bubble-api" },
-  { uid: "sample-8", id: 8, anchorX: 1366, anchorY: 767, bubbleX: 1366, bubbleY: 759, type: "线性尺寸", nominal: "2-03.5", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2-03.5", source: "bubble-api" },
+  { uid: "sample-8", id: 8, anchorX: 1366, anchorY: 767, bubbleX: 1366, bubbleY: 759, type: "直径", nominal: "2-Ø3.5", tolerance: "", method: "两点测量", instrument: "数显卡尺", confidence: null, rawText: "2-Ø3.5", source: "bubble-api" },
   { uid: "sample-9", id: 9, anchorX: 299, anchorY: 812, bubbleX: 250, bubbleY: 812, type: "线性尺寸", nominal: "2.06", tolerance: "", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "2.06", source: "bubble-api" },
   { uid: "sample-10", id: 10, anchorX: 907, anchorY: 899, bubbleX: 907, bubbleY: 852, type: "线性尺寸", nominal: "50.3", tolerance: "±0.3", method: "直接测量", instrument: "数显卡尺", confidence: null, rawText: "50.3±0.3", source: "bubble-api" },
 ];
