@@ -48,6 +48,9 @@ test("includes PDF rendering and editable annotation capabilities", async () => 
   assert.match(page, /exportBubbleImage/);
   assert.match(page, /exportCsv/);
   assert.match(page, /handleOverlayPointerMove/);
+  assert.match(page, /function createClientId\(\)/);
+  assert.match(page, /cryptoApi\?\.getRandomValues/);
+  assert.doesNotMatch(page, /(?:uid|id): crypto\.randomUUID\(\)/);
   assert.match(page, /removeFeature\(feature\.uid\)/);
   assert.match(page, /删除特性/);
   assert.match(page, /选择识别区域/);

@@ -143,6 +143,25 @@ const REGION_STATUS_LABELS: Record<RegionStatus, string> = {
   failed: "识别失败",
 };
 
+let fallbackIdCounter = 0;
+
+function createClientId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+  }
+
+  fallbackIdCounter += 1;
+  return `client-${Date.now().toString(36)}-${fallbackIdCounter.toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 function createSampleDrawing(): string {
   const canvas = document.createElement("canvas");
   canvas.width = 1200;
@@ -509,7 +528,7 @@ export default function Home() {
       const offsetX = region?.x ?? 0;
       const offsetY = region?.y ?? 0;
       return {
-        uid: crypto.randomUUID(),
+        uid: createClientId(),
         id: item.number,
         anchorX: offsetX + (leaderEnd?.[0] ?? (x0 + x1) / 2),
         anchorY: offsetY + (leaderEnd?.[1] ?? (y0 + y1) / 2),
@@ -997,7 +1016,7 @@ export default function Home() {
       return;
     }
     const region: RecognitionRegion = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       label: nextRegionLabel(regions),
       x: regionDraft.x,
       y: regionDraft.y,
@@ -1127,7 +1146,7 @@ export default function Home() {
     const x = (event.clientX - rect.left) / rect.width * imageSize.width;
     const y = (event.clientY - rect.top) / rect.height * imageSize.height;
     const id = features.length + 1;
-    const uid = crypto.randomUUID();
+    const uid = createClientId();
     const meta = TYPE_META["线性尺寸"];
     updateCurrentPageFeatures((current) => [...current, {
       uid,
